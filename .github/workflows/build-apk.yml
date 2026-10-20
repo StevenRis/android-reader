@@ -42,12 +42,29 @@ jobs:
           path: ~/.android/debug.keystore
           key: personal-reader-debug-keystore-v1
       - name: Unit tests, Android lint and APK
-        run: gradle --no-daemon testDebugUnitTest lintDebug assembleDebug
+        run: gradle --no-daemon testDebugUnitTest lintRelease assembleDebug assembleRelease
+      - name: Verify APK signatures and metadata
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging app/build/outputs/apk/release/app-release.apk > app/build/reports/apk-badging.txt
+          if grep -q application-debuggable app/build/reports/apk-badging.txt; then exit 1; fi
+          sha256sum app/build/outputs/apk/release/app-release.apk
+      - name: Enable emulator hardware acceleration
+        run: sudo chmod a+rw /dev/kvm
+      - name: Install and launch on Android 16
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash scripts/install-smoke.sh
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: QuietReader-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: QuietReader-1.0.1-APK
+          path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30
       - name: Check live website parser (one page, no saved book text)
@@ -69,7 +86,7 @@ jobs:
         if: success()
         run: |
           echo '### APK готов' >> "$GITHUB_STEP_SUMMARY"
-          echo 'Откройте Artifacts → QuietReader-APK, скачайте ZIP, распакуйте и установите app-debug.apk на Android 8 или новее.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Откройте Artifacts → QuietReader-1.0.1-APK, скачайте ZIP, распакуйте и установите app-release.apk на Android 8 или новее.' >> "$GITHUB_STEP_SUMMARY"
           echo 'Это сборка для личного использования. Тексты книг в APK отсутствуют.' >> "$GITHUB_STEP_SUMMARY"
           if [ "${{ steps.live.outcome }}" != "success" ]; then
             echo '⚠ Проверка сайта не прошла. Сборка готова, но загрузка с сайта требует проверки на телефоне. См. шаг Check live website parser.' >> "$GITHUB_STEP_SUMMARY"

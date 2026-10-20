@@ -141,11 +141,14 @@ public final class BookParser {
         if (!(node instanceof Element)) return;
         Element element = (Element)node;
         String tag = element.normalName();
-        if (tag.matches("h[1-6]")) {
+        int headingLevel = tag.matches("h[1-6]") ? tag.charAt(1) - '0' : 0;
+        for (String cssClass : element.classNames())
+            if (cssClass.matches("(?i)h[1-6]")) headingLevel = cssClass.charAt(1) - '0';
+        if (headingLevel > 0) {
             String title = element.text().replace('\u00a0', ' ').trim();
             if (!title.isEmpty()) {
                 paragraph(out);
-                headings.add(new Heading(title, out.length(), tag.charAt(1) - '0'));
+                headings.add(new Heading(title, out.length(), headingLevel));
                 out.append(title);
                 paragraph(out);
             }

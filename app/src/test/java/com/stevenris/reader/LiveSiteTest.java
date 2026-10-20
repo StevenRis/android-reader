@@ -14,6 +14,13 @@ public class LiveSiteTest {
                 .timeout(25000).maxBodySize(2 * 1024 * 1024).get();
         BookParser.Page first = BookParser.parse(doc);
         String text = first.text;
+        if (first.headings.isEmpty()) {
+            java.util.LinkedHashSet<String> shapes = new java.util.LinkedHashSet<>();
+            org.jsoup.nodes.Element root = doc.selectFirst("div.text");
+            if (root != null) for (org.jsoup.nodes.Element e : root.getAllElements())
+                shapes.add(e.normalName() + "." + String.join(".", e.classNames()));
+            System.out.println("Content element shapes (no book text): " + shapes);
+        }
         assertFalse("First-page headings were lost", first.headings.isEmpty());
         int pages = BookParser.pageCount(doc, 8466);
         assertTrue("Book page count was not discovered: " + pages, pages > 1);

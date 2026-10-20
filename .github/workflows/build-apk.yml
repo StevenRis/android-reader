@@ -43,6 +43,12 @@ jobs:
           key: personal-reader-debug-keystore-v1
       - name: Unit tests, Android lint and APK
         run: gradle --no-daemon testDebugUnitTest lintRelease assembleDebug assembleRelease
+      - name: Check live website headings (two pages, no saved book text)
+        id: live
+        continue-on-error: true
+        env:
+          LIVE_SITE_TEST: '1'
+        run: gradle --no-daemon testDebugUnitTest --tests com.stevenris.reader.LiveSiteTest --rerun-tasks
       - name: Verify APK signatures and metadata
         run: |
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
@@ -67,12 +73,6 @@ jobs:
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30
-      - name: Check live website headings (two pages, no saved book text)
-        id: live
-        continue-on-error: true
-        env:
-          LIVE_SITE_TEST: '1'
-        run: gradle --no-daemon testDebugUnitTest --tests com.stevenris.reader.LiveSiteTest --rerun-tasks
       - name: Upload test and lint reports
         if: always()
         uses: actions/upload-artifact@v4

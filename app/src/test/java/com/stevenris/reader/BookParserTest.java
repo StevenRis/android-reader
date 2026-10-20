@@ -97,4 +97,14 @@ public class BookParserTest {
         assertTrue(page.text.contains("Раздел 6"));
         assertEquals(1, page.text.split("Раздел 1", -1).length - 1);
     }
+    @Test public void recognizesLovereadCssHeadings() {
+        BookParser.Page page = BookParser.parse(doc("<div class='text'>"
+                + "<div class='h2'>9. Тестовая глава</div>"
+                + "<p>Учебный абзац достаточной длины для проверки импорта.</p>"
+                + "<div class='h3 extra'>10. Следующая глава</div><p>Продолжение текста.</p></div>"));
+        assertEquals(2, page.headings.size());
+        assertEquals("9. Тестовая глава", page.headings.get(0).title);
+        assertEquals(2, page.headings.get(0).level);
+        assertEquals(3, page.headings.get(1).level);
+    }
 }

@@ -24,6 +24,15 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
     lint { abortOnError true }
+    testOptions {
+        unitTests.all {
+            testLogging {
+                events "passed", "skipped", "failed"
+                exceptionFormat "full"
+                showStandardStreams = true
+            }
+        }
+    }
 }
 dependencies {
     implementation 'org.jsoup:jsoup:1.18.3'

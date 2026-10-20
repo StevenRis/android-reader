@@ -25,6 +25,7 @@ import android.text.InputType;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.InputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
@@ -347,7 +348,13 @@ public class MainActivity extends Activity {
                 byte[] bytes;
                 try(InputStream in=getContentResolver().openInputStream(uri)){
                     if(in==null)throw new Exception("Нет доступа к файлу");
-                    bytes=in.readAllBytes();
+                    ByteArrayOutputStream buffer=new ByteArrayOutputStream();
+                    byte[] chunk=new byte[8192];int n;
+                    while((n=in.read(chunk))!=-1){
+                        if(buffer.size()+n>10_000_000)throw new Exception("Слишком большой файл");
+                        buffer.write(chunk,0,n);
+                    }
+                    bytes=buffer.toByteArray();
                 }
                 if(bytes.length>10_000_000)throw new Exception("Слишком большой файл");
                 JSONObject root=new JSONObject(new String(bytes,StandardCharsets.UTF_8));

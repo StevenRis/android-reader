@@ -31,6 +31,9 @@ jobs:
           gradle-version: '8.9'
       - name: Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
+          log-accepted-android-sdk-licenses: false
       - name: Install Android 35
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
       - name: Keep the personal debug signing key for future updates

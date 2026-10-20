@@ -36,6 +36,18 @@ jobs:
           key: garage-log-signing-v1
       - run: gradle --no-daemon lintRelease assembleRelease
       - run: '"$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose app/build/outputs/apk/release/app-release.apk'
+      - name: Install and launch on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: |
+            adb install carlog/app/build/outputs/apk/release/app-release.apk
+            adb shell am start -W -n com.stevenris.garagelog/.MainActivity
+            adb shell pidof com.stevenris.garagelog
       - uses: actions/upload-artifact@v4
         with:
           name: GarageLog-APK

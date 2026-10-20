@@ -1,0 +1,33 @@
+name: Inspect book markup
+on:
+  push:
+    paths: ['.github/workflows/inspect-layout.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install HTML parser
+        run: pip install beautifulsoup4
+      - name: Inspect containers without outputting book text
+        shell: python
+        run: |
+          import urllib.request
+          from bs4 import BeautifulSoup
+          def shape(e):
+              return e.name + str({k:v for k,v in e.attrs.items() if k in ("id","class","align")})
+          for page in (1,2):
+              url = "https://loveread.ec/read_book.php?id=8466&p=" + str(page)
+              req = urllib.request.Request(url, headers={"User-Agent":"Mozilla/5.0"})
+              raw = urllib.request.urlopen(req,timeout=30).read()
+              soup = BeautifulSoup(raw,"html.parser")
+              print("PAGE",page)
+              for p in soup.select("p.MsoNormal")[:2]:
+                  print("PARAGRAPH ANCESTORS", [shape(e) for e in [p,*list(p.parents)[:6]] if e.name])
+              for text in soup.find_all(string=True):
+                  if any(t in text for t in ("Эпоха первая","Полицейское досье","9. Полицейское","Мастера на все руки")):
+                      print("HEADING ANCESTORS", [shape(e) for e in list(text.parents)[:7] if e.name])
+              for e in soup.select("h1,h2,h3,.h1,.h2,.h3"):
+                  print("HEADING SHAPE",shape(e), "PARENT",shape(e.parent), "LENGTH",len(e.get_text()))

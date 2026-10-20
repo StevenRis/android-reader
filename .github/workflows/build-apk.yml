@@ -45,7 +45,6 @@ jobs:
         run: gradle --no-daemon testDebugUnitTest lintRelease assembleDebug assembleRelease
       - name: Check live website headings (two pages, no saved book text)
         id: live
-        continue-on-error: true
         env:
           LIVE_SITE_TEST: '1'
         run: gradle --no-daemon testDebugUnitTest --tests com.stevenris.reader.LiveSiteTest --rerun-tasks

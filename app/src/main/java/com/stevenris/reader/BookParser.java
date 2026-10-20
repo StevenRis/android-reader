@@ -103,7 +103,7 @@ public final class BookParser {
     public static String text(Document doc) { return parse(doc).text; }
 
     public static Page parse(Document doc) {
-        Element root = doc.selectFirst("div.text");
+        Element root = doc.selectFirst("#readerContent, .book-content, div.text");
         if (root == null) root = doc.selectFirst("#booktext, .book-text, #book-text");
         if (root == null) {
             Element firstParagraph = doc.selectFirst("p.MsoNormal");
@@ -142,6 +142,7 @@ public final class BookParser {
         Element element = (Element)node;
         String tag = element.normalName();
         int headingLevel = tag.matches("h[1-6]") ? tag.charAt(1) - '0' : 0;
+        if (element.hasClass("book-title")) headingLevel = 2;
         for (String cssClass : element.classNames())
             if (cssClass.matches("(?i)h[1-6]")) headingLevel = cssClass.charAt(1) - '0';
         if (headingLevel > 0) {

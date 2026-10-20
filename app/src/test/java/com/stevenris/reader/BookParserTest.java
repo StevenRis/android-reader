@@ -107,4 +107,17 @@ public class BookParserTest {
         assertEquals(2, page.headings.get(0).level);
         assertEquals(3, page.headings.get(1).level);
     }
+    @Test public void recognizesActualReaderContentAndBookTitleMarkup() {
+        BookParser.Page page = BookParser.parse(doc("<div class='textBook'>"
+                + "<h2 class='h2-title'>Онлайн книга: навигационный заголовок</h2>"
+                + "<main id='readerContent' class='book-content'>"
+                + "<p class='MsoNormal'>Предыдущий учебный абзац достаточной длины.</p>"
+                + "<div class='book-title'><a name='chapter9'></a>9. Тестовая глава</div>"
+                + "<p class='MsoNormal'>Учебный абзац после заголовка.</p>"
+                + "</main><footer>Посторонний текст</footer></div>"));
+        assertEquals(1, page.headings.size());
+        assertEquals("9. Тестовая глава", page.headings.get(0).title);
+        assertFalse(page.text.contains("навигационный"));
+        assertFalse(page.text.contains("Посторонний"));
+    }
 }

@@ -32,6 +32,7 @@ import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
 import java.util.Date;
 import java.util.Calendar;
+import java.util.ArrayList;
 import java.util.Locale;
 
 public class MainActivity extends Activity {
@@ -156,7 +157,8 @@ public class MainActivity extends Activity {
         int percent=(int)Math.max(0,Math.min(100,Math.round(remain*100.0/interval)));
         LinearLayout box=column();
         box.addView(label(name,18,ink,true));
-        box.addView(label(percent+"% осталось · "+remain+" км до замены",15,percent<=15?Color.rgb(185,65,32):blue,true));
+        String status=used>interval?"Просрочено на "+(used-interval)+" км":used==interval?"Пора менять · интервал достигнут":percent+"% осталось · "+remain+" км до замены";
+        box.addView(label(status,15,percent<=15?Color.rgb(185,65,32):blue,true));
         ProgressBar bar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
         bar.setMax(100);bar.setProgress(percent);
         bar.setProgressTintList(android.content.res.ColorStateList.valueOf(percent<=15?Color.rgb(218,88,47):blue));
@@ -267,19 +269,99 @@ public class MainActivity extends Activity {
             .setItems(new String[]{"Изменить параметры","Добавить прошлую замену","История замен","Удалить расходник"},(dialog,which)->{
                 if(which==0)itemForm(id);
                 if(which==1)replaceItem(id,name,true);
-                if(which==2){
-                    StringBuilder sb=new StringBuilder();
-                    try(Cursor c=data().rawQuery("SELECT odo,stamp FROM services WHERE item=? ORDER BY odo DESC,_id DESC",args(id))) {
-                        while(c.moveToNext())sb.append(date(c.getLong(1))).append(" · ").append(c.getLong(0)).append(" км\n");
-                    }
-                    new AlertDialog.Builder(this).setTitle("История: "+name)
-                        .setMessage(sb.length()==0?"Замен пока нет":sb.toString()).setPositiveButton("Готово",null).show();
-                }
+                if(which==2)showHistory(id,name);
                 if(which==3)new AlertDialog.Builder(this).setTitle("Удалить "+name+"?")
                     .setNegativeButton("Отмена",null).setPositiveButton("Удалить",(d,w)->{
                         data().delete("services","item=?",args(id));data().delete("items","_id=?",args(id));show();
                     }).show();
             }).show();
+    }
+    private void ensureCurrentInHistory(SQLiteDatabase sql,long item) {
+        long km,when;
+        try(Cursor c=sql.rawQuery("SELECT last_km,last_date FROM items WHERE _id=?",args(item))) {
+            if(!c.moveToFirst())return;
+            km=c.getLong(0);when=c.getLong(1);
+        }
+        try(Cursor c=sql.rawQuery("SELECT _id FROM services WHERE item=? AND odo=? LIMIT 1",
+                new String[]{String.valueOf(item),String.valueOf(km)})){
+            if(c.moveToFirst())return;
+        }
+        ContentValues v=new ContentValues();v.put("item",item);v.put("odo",km);v.put("stamp",when);
+        sql.insertOrThrow("services",null,v);
+    }
+    private void syncLastService(SQLiteDatabase sql,long item) {
+        try(Cursor c=sql.rawQuery("SELECT odo,stamp FROM services WHERE item=? ORDER BY odo DESC,_id DESC LIMIT 1",args(item))){
+            if(c.moveToFirst()){
+                ContentValues v=new ContentValues();v.put("last_km",c.getLong(0));v.put("last_date",c.getLong(1));
+                sql.update("items",v,"_id=?",args(item));
+            }
+        }
+    }
+    private void showHistory(long item,String name) {
+        ensureCurrentInHistory(data(),item);
+        ArrayList<Long> ids=new ArrayList<>();
+        ArrayList<String> lines=new ArrayList<>();
+        try(Cursor c=data().rawQuery("SELECT _id,odo,stamp FROM services WHERE item=? ORDER BY odo DESC,_id DESC",args(item))){
+            while(c.moveToNext()){
+                ids.add(c.getLong(0));
+                lines.add(date(c.getLong(2))+"  ·  "+c.getLong(1)+" км");
+            }
+        }
+        new AlertDialog.Builder(this).setTitle("История: "+name)
+            .setItems(lines.toArray(new String[0]),(d,index)->editService(item,name,ids.get(index)))
+            .setNegativeButton("Закрыть",null).show();
+    }
+    private void editService(long item,String name,long service) {
+        long previousKm,previousDate;
+        try(Cursor c=data().rawQuery("SELECT odo,stamp FROM services WHERE _id=? AND item=?",
+                new String[]{String.valueOf(service),String.valueOf(item)})){
+            if(!c.moveToFirst())return;
+            previousKm=c.getLong(0);previousDate=c.getLong(1);
+        }
+        LinearLayout form=column();form.setPadding(dip(15),0,dip(15),0);
+        EditText km=field("Пробег замены, км",InputType.TYPE_CLASS_NUMBER);
+        km.setText(String.valueOf(previousKm));
+        long[] when={previousDate};
+        form.addView(km);form.addView(dateButton(when));
+        AlertDialog dlg=new AlertDialog.Builder(this).setTitle("Изменить: "+name)
+            .setView(form).setNegativeButton("Отмена",null)
+            .setNeutralButton("Удалить",null).setPositiveButton("Сохранить",null).create();
+        dlg.setOnShowListener(v->{
+            dlg.getButton(-1).setOnClickListener(w->{
+                Long value=number(km);
+                if(value==null){Toast.makeText(this,"Укажи пробег цифрами.",Toast.LENGTH_LONG).show();return;}
+                SQLiteDatabase sql=data();sql.beginTransaction();
+                try{
+                    ContentValues cv=new ContentValues();cv.put("odo",value);cv.put("stamp",when[0]);
+                    sql.update("services",cv,"_id=? AND item=?",
+                        new String[]{String.valueOf(service),String.valueOf(item)});
+                    syncLastService(sql,item);
+                    if(value>odo()){
+                        cv=new ContentValues();cv.put("odo",value);sql.update("cars",cv,"_id=?",args(carId));
+                    }
+                    sql.setTransactionSuccessful();
+                }finally{sql.endTransaction();}
+                dlg.dismiss();show();showHistory(item,name);
+            });
+            dlg.getButton(-3).setOnClickListener(w->
+                new AlertDialog.Builder(this).setTitle("Удалить запись о замене?")
+                    .setNegativeButton("Отмена",null).setPositiveButton("Удалить",(d,choice)->{
+                        SQLiteDatabase sql=data();sql.beginTransaction();
+                        boolean deleted=false;
+                        try(Cursor c=sql.rawQuery("SELECT COUNT(*) FROM services WHERE item=?",args(item))){
+                            if(c.moveToFirst()&&c.getInt(0)<=1){
+                                Toast.makeText(this,"Последнюю запись можно исправить, но не удалить.",Toast.LENGTH_LONG).show();
+                            }else{
+                                deleted=sql.delete("services","_id=? AND item=?",
+                                    new String[]{String.valueOf(service),String.valueOf(item)})>0;
+                                if(deleted)syncLastService(sql,item);
+                            }
+                            sql.setTransactionSuccessful();
+                        }finally{sql.endTransaction();}
+                        if(deleted){dlg.dismiss();show();showHistory(item,name);}
+                    }).show());
+        });
+        dlg.show();
     }
     private void editOdo() {
         EditText km=field("Текущий пробег, км",InputType.TYPE_CLASS_NUMBER);

@@ -8,6 +8,11 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.text.InputType;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.StyleSpan;
+import android.text.style.RelativeSizeSpan;
+import android.text.style.ForegroundColorSpan;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
@@ -20,6 +25,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.json.JSONObject;
+import org.json.JSONArray;
+import java.util.ArrayList;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 
@@ -210,8 +217,9 @@ public final class MainActivity extends Activity {
             Button read = button("Читать", v -> openBook(id));
             read.setEnabled(available > 0);
             flex(buttons, read);
-            if (available < count) {
-                Button resume = button("Докачать", v -> download(id));
+            boolean outdated = books.needsUpdate(id, count);
+            if (available < count || outdated) {
+                Button resume = button(outdated ? "Обновить текст" : "Докачать", v -> download(id));
                 resume.setEnabled(!downloading);
                 flex(buttons, resume);
             }
@@ -228,6 +236,7 @@ public final class MainActivity extends Activity {
             remove.setEnabled(!downloading);
             flex(buttons, remove);
             entry.addView(buttons);
+            if (outdated) entry.addView(label("Доступно обновление: заголовки и список глав", 12, muted));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
             lp.setMargins(0, dp(12), 0, dp(4));
             list.addView(entry, lp);
@@ -262,9 +271,12 @@ public final class MainActivity extends Activity {
             title.setSingleLine(true);
             title.setEllipsize(TextUtils.TruncateAt.END);
             root.addView(title);
+            Button chapters = button("Главы", v -> showChapters());
+            root.addView(chapters, new LinearLayout.LayoutParams(-1, dp(42)));
             readingScroll = new ScrollView(this);
             readingScroll.setFillViewport(true);
-            body = label(text, font, ink);
+            body = label("", font, ink);
+            body.setText(formattedPage(text));
             body.setTypeface(Typeface.SERIF);
             body.setLineSpacing(dp(5), 1.12f);
             body.setPadding(dp(4), dp(18), dp(4), dp(40));
@@ -294,6 +306,67 @@ public final class MainActivity extends Activity {
         }
     }
 
+
+    private CharSequence formattedPage(String text) {
+        SpannableString styled = new SpannableString(text);
+        try {
+            JSONArray headings = books.headings(bookId, page);
+            for (int i = 0; i < headings.length(); i++) {
+                JSONObject h = headings.getJSONObject(i);
+                int start = h.getInt("offset");
+                String title = h.getString("title");
+                int end = start + title.length();
+                if (start < 0 || end > text.length() || !text.substring(start, end).equals(title)) continue;
+                styled.setSpan(new StyleSpan(Typeface.BOLD), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                styled.setSpan(new RelativeSizeSpan(1.18f), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                styled.setSpan(new ForegroundColorSpan(night ? Color.rgb(219, 183, 129) : ACCENT),
+                        start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+        } catch (Exception ignored) { }
+        return styled;
+    }
+
+    private void showChapters() {
+        ArrayList<String> labels = new ArrayList<>();
+        ArrayList<Integer> destinations = new ArrayList<>();
+        ArrayList<Integer> offsets = new ArrayList<>();
+        for (int p = 1; p <= total; p++) {
+            try {
+                JSONArray items = books.headings(bookId, p);
+                for (int i = 0; i < items.length(); i++) {
+                    JSONObject item = items.getJSONObject(i);
+                    labels.add(item.getString("title") + "  ·  стр. " + p);
+                    destinations.add(p);
+                    offsets.add(item.getInt("offset"));
+                }
+            } catch (Exception ignored) { }
+        }
+        if (labels.isEmpty()) {
+            message(books.needsUpdate(bookId, total)
+                    ? "Книга скачана старой версией. В библиотеке нажмите «Обновить текст», чтобы восстановить заголовки и список глав."
+                    : "В скачанных страницах нет заголовков. Возможно, книга ещё загружается или сайт не размечает главы.");
+            return;
+        }
+        new AlertDialog.Builder(this).setTitle("Главы")
+                .setItems(labels.toArray(new String[0]), (dialog, which) -> {
+                    goTo(destinations.get(which));
+                    final int position = offsets.get(which);
+                    final TextView textView = body;
+                    final ScrollView target = readingScroll;
+                    final int selectedBook = bookId;
+                    final int selectedPage = page;
+                    // Wait for TextView to lay out the new page before locating the heading.
+                    target.postDelayed(() -> {
+                        if (body != textView || readingScroll != target || bookId != selectedBook
+                                || page != selectedPage || textView.getLayout() == null) return;
+                        int offset = Math.max(0, Math.min(position, textView.length()));
+                        int line = textView.getLayout().getLineForOffset(offset);
+                        target.scrollTo(0, textView.getLayout().getLineTop(line) + textView.getPaddingTop());
+                        savePosition();
+                    }, 100);
+                }).setNegativeButton("Закрыть", null).show();
+    }
+
     private void updateNavigation() {
         counter.setText(page + " / " + total);
         previous.setEnabled(page > 1);
@@ -312,7 +385,7 @@ public final class MainActivity extends Activity {
             String text = books.page(bookId, destination);
             savePosition();
             page = destination;
-            body.setText(text);
+            body.setText(formattedPage(text));
             readingScroll.scrollTo(0, 0);
             updateNavigation();
             prefs.edit().putInt("page_" + bookId, page).putFloat("scroll_" + bookId, 0).apply();
@@ -403,7 +476,8 @@ public final class MainActivity extends Activity {
             String completion;
             try {
                 Document first = fetchPage(id, 1);
-                String firstText = BookParser.text(first);
+                BookParser.Page firstPage = BookParser.parse(first);
+                String firstText = firstPage.text;
                 String title = BookParser.title(first);
                 int pages = BookParser.pageCount(first, id);
                 // A pagination regression must not silently mark a partial book complete.
@@ -413,28 +487,29 @@ public final class MainActivity extends Activity {
                         throw new IllegalStateException("Изменилось число страниц. Загрузка остановлена, сохранённая книга не изменена.");
                 } catch (java.io.FileNotFoundException ignored) { }
                 books.saveMeta(id, title, pages);
-                books.savePage(id, 1, firstText);
+                books.savePage(id, 1, firstPage);
                 int saved = books.downloaded(id, pages);
                 final int count = pages;
                 final int initialSaved = saved;
                 runOnUiThread(() -> updateStatus("Скачано " + initialSaved + " из " + count + " стр."));
                 for (int p = 2; p <= pages && !cancelled.get(); p++) {
-                    if (books.hasPage(id, p)) continue;
+                    if (books.modernPage(id, p)) continue;
                     Thread.sleep(800);
                     if (cancelled.get()) break;
                     Document doc = fetchPage(id, p);
-                    String content = BookParser.text(doc);
+                    BookParser.Page parsedPage = BookParser.parse(doc);
+                    String content = parsedPage.text;
                     // A redirect to the first page must not masquerade as a later page.
                     if (content.equals(firstText))
                         throw new Exception("Сайт вернул первую страницу вместо страницы " + p + ". Попробуйте докачать позже.");
-                    books.savePage(id, p, content);
-                    saved++;
-                    final int done = saved;
-                    runOnUiThread(() -> updateStatus("Скачано " + done + " из " + count
-                            + " стр. · можно остановить и продолжить позже"));
+                    if (!books.hasPage(id, p)) saved++;
+                    books.savePage(id, p, parsedPage);
+                    final int done = p;
+                    runOnUiThread(() -> updateStatus("Обработана страница " + done + " из " + count
+                            + " · можно остановить и продолжить позже"));
                 }
                 int available = books.downloaded(id, pages);
-                completion = available == pages ? "Готово: «" + title + "». Можно читать без интернета."
+                completion = available == pages && !cancelled.get() && !books.needsUpdate(id, pages) ? "Готово: «" + title + "». Можно читать без интернета."
                         : "Остановлено. Сохранено " + available + " из " + pages + " стр. Нажмите «Докачать».";
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();

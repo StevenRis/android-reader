@@ -81,36 +81,83 @@ public final class BookParser {
         return title.isEmpty() ? "Книга" : title;
     }
 
-    public static String text(Document doc) {
-        // Prefer the site's text container. Never save the whole page/body,
-        // which would silently include navigation, advertising or a challenge.
+    public static final int FORMAT_VERSION = 2;
+
+    public static final class Heading {
+        public final String title;
+        public final int offset;
+        public final int level;
+        Heading(String title, int offset, int level) {
+            this.title = title; this.offset = offset; this.level = level;
+        }
+    }
+
+    public static final class Page {
+        public final String text;
+        public final List<Heading> headings;
+        Page(String text, List<Heading> headings) {
+            this.text = text; this.headings = headings;
+        }
+    }
+
+    public static String text(Document doc) { return parse(doc).text; }
+
+    public static Page parse(Document doc) {
         Element root = doc.selectFirst("div.text");
         if (root == null) root = doc.selectFirst("#booktext, .book-text, #book-text");
-        List<Element> paragraphs = new ArrayList<>();
-        if (root != null) {
-            root = root.clone();
-            root.select("script, style, noscript, iframe, form, .navigation, .pagination, .ads").remove();
-            paragraphs.addAll(root.select("p"));
-        } else {
-            paragraphs.addAll(doc.select("p.MsoNormal"));
+        if (root == null) {
+            Element firstParagraph = doc.selectFirst("p.MsoNormal");
+            if (firstParagraph != null) root = firstParagraph.parent();
         }
+        if (root == null || root == doc.body() || root == doc)
+            throw new IllegalArgumentException("Не найден текст страницы. Возможно, сайт изменился или ограничил доступ.");
+        root = root.clone();
+        root.select("script, style, noscript, iframe, form, nav, .navigation, .pagination, .ads").remove();
         StringBuilder out = new StringBuilder();
-        // Do not deduplicate actual paragraphs: deliberate repetitions are text.
-        for (Element p : paragraphs) {
-            if (!p.select("p").isEmpty()) {
-                // select("p") includes p itself; ignore only actual nested p nodes.
-                if (p.select("p").size() > 1) continue;
-            }
-            Element copy = p.clone();
-            String text = copy.wholeText().replace('\u00a0', ' ').trim();
-            if (!text.isEmpty()) out.append(text).append("\n\n");
-        }
-        if (out.length() == 0 && root != null) {
-            out.append(root.wholeText().trim());
-        }
+        List<Heading> headings = new ArrayList<>();
+        append(root, out, headings);
         String result = out.toString().trim();
         if (result.length() < 40)
             throw new IllegalArgumentException("Не найден текст страницы. Возможно, сайт изменился или ограничил доступ.");
-        return result;
+        // append() never adds leading whitespace, so trimming only affects the end.
+        return new Page(result, headings);
+    }
+
+    private static void paragraph(StringBuilder out) {
+        while (out.length() > 0 && Character.isWhitespace(out.charAt(out.length() - 1)))
+            out.setLength(out.length() - 1);
+        if (out.length() > 0) out.append("\n\n");
+    }
+
+    private static void append(org.jsoup.nodes.Node node, StringBuilder out, List<Heading> headings) {
+        if (node instanceof org.jsoup.nodes.TextNode) {
+            String text = ((org.jsoup.nodes.TextNode)node).getWholeText()
+                    .replace('\u00a0', ' ').replaceAll("\\s+", " ");
+            if (out.length() == 0 || out.charAt(out.length() - 1) == '\n')
+                text = text.replaceFirst("^ +", "");
+            out.append(text);
+            return;
+        }
+        if (!(node instanceof Element)) return;
+        Element element = (Element)node;
+        String tag = element.normalName();
+        if (tag.matches("h[1-6]")) {
+            String title = element.text().replace('\u00a0', ' ').trim();
+            if (!title.isEmpty()) {
+                paragraph(out);
+                headings.add(new Heading(title, out.length(), tag.charAt(1) - '0'));
+                out.append(title);
+                paragraph(out);
+            }
+            return;
+        }
+        if (tag.equals("br")) {
+            out.append('\n');
+            return;
+        }
+        boolean block = tag.matches("p|div|section|article|blockquote|li|ul|ol|table|tr|td|pre|hr");
+        if (block) paragraph(out);
+        for (org.jsoup.nodes.Node child : element.childNodes()) append(child, out, headings);
+        if (block) paragraph(out);
     }
 }

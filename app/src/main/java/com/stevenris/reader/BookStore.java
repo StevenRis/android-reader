@@ -3,6 +3,7 @@ package com.stevenris.reader;
 import android.content.Context;
 import android.util.AtomicFile;
 import org.json.JSONObject;
+import org.json.JSONArray;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -18,6 +19,36 @@ final class BookStore {
     private File metaFile(int id) { return new File(folder(id), "meta.json"); }
     private File pageFile(int id, int page) { return new File(folder(id), page + ".txt"); }
 
+    private File pageJson(int id, int page) { return new File(folder(id), page + ".json"); }
+
+    synchronized boolean modernPage(int id, int page) {
+        if (!pageJson(id, page).isFile()) return false;
+        try { return new JSONObject(read(pageJson(id, page))).optInt("format") == BookParser.FORMAT_VERSION; }
+        catch (Exception e) { return false; }
+    }
+    synchronized boolean needsUpdate(int id, int total) {
+        for (int p = 1; p <= total; p++) if (hasPage(id, p) && !modernPage(id, p)) return true;
+        return false;
+    }
+    synchronized JSONArray headings(int id, int page) throws Exception {
+        if (!pageJson(id, page).isFile()) return new JSONArray();
+        return new JSONObject(read(pageJson(id, page))).getJSONArray("headings");
+    }
+    synchronized void savePage(int id, int page, BookParser.Page parsed) throws Exception {
+        folder(id).mkdirs();
+        JSONArray headings = new JSONArray();
+        for (BookParser.Heading h : parsed.headings) {
+            JSONObject item = new JSONObject();
+            item.put("title", h.title); item.put("offset", h.offset); item.put("level", h.level);
+            headings.put(item);
+        }
+        JSONObject json = new JSONObject();
+        json.put("format", BookParser.FORMAT_VERSION);
+        json.put("text", parsed.text);
+        json.put("headings", headings);
+        // Text and offsets are replaced atomically as a single record.
+        write(pageJson(id, page), json.toString());
+    }
     synchronized void saveMeta(int id, String title, int total) throws Exception {
         folder(id).mkdirs();
         JSONObject meta = new JSONObject();
@@ -38,7 +69,8 @@ final class BookStore {
         return result;
     }
     synchronized boolean hasPage(int id, int page) {
-        return pageFile(id, page).isFile() && pageFile(id, page).length() > 0;
+        return (pageJson(id, page).isFile() && pageJson(id, page).length() > 0)
+                || (pageFile(id, page).isFile() && pageFile(id, page).length() > 0);
     }
     synchronized int downloaded(int id, int total) {
         int result = 0;
@@ -49,7 +81,10 @@ final class BookStore {
         folder(id).mkdirs();
         write(pageFile(id, page), text);
     }
-    synchronized String page(int id, int page) throws Exception { return read(pageFile(id, page)); }
+    synchronized String page(int id, int page) throws Exception {
+        if (pageJson(id, page).isFile()) return new JSONObject(read(pageJson(id, page))).getString("text");
+        return read(pageFile(id, page));
+    }
     synchronized void delete(int id) {
         File[] files = folder(id).listFiles();
         if (files != null) for (File file : files) file.delete();

@@ -56,4 +56,45 @@ public class BookParserTest {
     @Test public void stripsPageNumberFromTitle() {
         assertEquals("Тестовая книга", BookParser.title(doc("<h1>Книга Тестовая книга, страница 1 – Автор</h1>")));
     }
+    @Test public void keepsHeadingsAndParagraphsInDocumentOrder() {
+        Document d = doc("<div class='text'><p>Первый учебный абзац достаточной длины для проверки.</p>"
+                + "<h2><a name='9'>9. Тестовая глава</a></h2>"
+                + "<p>Следующий учебный абзац с <em>выделением</em> и продолжением.</p>"
+                + "<h3>10. Следующая глава</h3><blockquote>Цитата для теста.</blockquote></div>");
+        BookParser.Page page = BookParser.parse(d);
+        assertEquals(2, page.headings.size());
+        assertEquals("9. Тестовая глава", page.headings.get(0).title);
+        assertTrue(page.text.indexOf("Первый") < page.text.indexOf("9. Тестовая глава"));
+        assertTrue(page.text.indexOf("9. Тестовая глава") < page.text.indexOf("Следующий"));
+        assertTrue(page.text.contains("с выделением и продолжением."));
+        for (BookParser.Heading heading : page.headings) {
+            assertEquals(heading.title, page.text.substring(heading.offset,
+                    heading.offset + heading.title.length()));
+            assertEquals(page.text.indexOf(heading.title), heading.offset);
+        }
+        assertEquals(2, page.headings.get(0).level);
+        assertEquals(3, page.headings.get(1).level);
+    }
+
+    @Test public void keepsLooseTextAndLineBreaksAlongsideParagraphs() {
+        String result = BookParser.text(doc("<div class='text'>"
+                + "Вводный текст вне абзаца, который нельзя потерять."
+                + "<h2>Заголовок</h2><p>Первая строка<br>Вторая строка</p>"
+                + "<div>Конец текста вне абзацев.</div></div>"));
+        assertTrue(result.contains("Вводный текст"));
+        assertTrue(result.contains("Заголовок"));
+        assertTrue(result.contains("Первая строка\nВторая строка"));
+        assertTrue(result.contains("Конец текста"));
+    }
+
+    @Test public void allHeadingLevelsAreRetainedAndInlineMarkupDoesNotDuplicateText() {
+        String html = "<div class='text'>";
+        for (int i = 1; i <= 6; i++)
+            html += "<h" + i + ">Раздел " + i + "</h" + i + "><p>Учебный абзац " + i + ".</p>";
+        html += "</div>";
+        BookParser.Page page = BookParser.parse(doc(html));
+        assertEquals(6, page.headings.size());
+        assertTrue(page.text.contains("Раздел 6"));
+        assertEquals(1, page.text.split("Раздел 1", -1).length - 1);
+    }
 }

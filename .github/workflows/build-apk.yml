@@ -63,11 +63,11 @@ jobs:
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: QuietReader-1.0.1-APK
+          name: QuietReader-1.0.2-APK
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30
-      - name: Check live website parser (one page, no saved book text)
+      - name: Check live website headings (two pages, no saved book text)
         id: live
         continue-on-error: true
         env:
@@ -86,7 +86,7 @@ jobs:
         if: success()
         run: |
           echo '### APK готов' >> "$GITHUB_STEP_SUMMARY"
-          echo 'Откройте Artifacts → QuietReader-1.0.1-APK, скачайте ZIP, распакуйте и установите app-release.apk на Android 8 или новее.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Откройте Artifacts → QuietReader-1.0.2-APK, скачайте ZIP, распакуйте и установите app-release.apk на Android 8 или новее.' >> "$GITHUB_STEP_SUMMARY"
           echo 'Это сборка для личного использования. Тексты книг в APK отсутствуют.' >> "$GITHUB_STEP_SUMMARY"
           if [ "${{ steps.live.outcome }}" != "success" ]; then
             echo '⚠ Проверка сайта не прошла. Сборка готова, но загрузка с сайта требует проверки на телефоне. См. шаг Check live website parser.' >> "$GITHUB_STEP_SUMMARY"

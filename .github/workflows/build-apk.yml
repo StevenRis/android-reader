@@ -1,0 +1,73 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Test and build APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install Android 35
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Keep the personal debug signing key for future updates
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: personal-reader-debug-keystore-v1
+      - name: Unit tests, Android lint and APK
+        run: gradle --no-daemon testDebugUnitTest lintDebug assembleDebug
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuietReader-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+      - name: Check live website parser (one page, no saved book text)
+        id: live
+        continue-on-error: true
+        env:
+          LIVE_SITE_TEST: '1'
+        run: gradle --no-daemon testDebugUnitTest --tests com.stevenris.reader.LiveSiteTest --rerun-tasks
+      - name: Upload test and lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Verification-reports
+          path: |
+            app/build/reports/
+            app/build/test-results/
+          retention-days: 14
+      - name: Download instructions
+        if: success()
+        run: |
+          echo '### APK готов' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Откройте Artifacts → QuietReader-APK, скачайте ZIP, распакуйте и установите app-debug.apk на Android 8 или новее.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Это сборка для личного использования. Тексты книг в APK отсутствуют.' >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.live.outcome }}" != "success" ]; then
+            echo '⚠ Проверка сайта не прошла. Сборка готова, но загрузка с сайта требует проверки на телефоне. См. шаг Check live website parser.' >> "$GITHUB_STEP_SUMMARY"
+          fi

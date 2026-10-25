@@ -9,6 +9,9 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
 import android.graphics.Color;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Bundle;
@@ -40,8 +43,10 @@ public class MainActivity extends Activity {
     private Db db;
     private LinearLayout page;
     private long carId = -1;
-    private final int ink = Color.rgb(27, 38, 48), muted = Color.rgb(92, 105, 116);
-    private final int blue = Color.rgb(26, 102, 187);
+    private final int ink = Color.rgb(237, 243, 237), muted = Color.rgb(162, 183, 175);
+    private final int blue = Color.rgb(199, 224, 168);
+    private final int background = Color.rgb(16, 26, 34), panel = Color.rgb(27, 41, 42);
+    private final int warning = Color.rgb(241, 164, 126);
 
     static class Db extends SQLiteOpenHelper {
         Db(Activity a) { super(a, "garage.db", null, 2); }
@@ -57,9 +62,12 @@ public class MainActivity extends Activity {
     }
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        getWindow().setStatusBarColor(Color.rgb(13, 50, 98));
-        getWindow().setNavigationBarColor(Color.rgb(13, 50, 98));
+        getWindow().setStatusBarColor(background);
+        getWindow().setNavigationBarColor(background);
         db = new Db(this);
+        try(Cursor c=data().rawQuery("SELECT _id FROM cars ORDER BY _id LIMIT 1",null)){
+            if(c.moveToFirst())carId=c.getLong(0);
+        }
         show();
     }
     private SQLiteDatabase data() { return db.getWritableDatabase(); }
@@ -76,43 +84,83 @@ public class MainActivity extends Activity {
         if(bold) t.setTypeface(null,Typeface.BOLD);
         return t;
     }
-    private Button button(String text, Runnable action) {
-        Button b = new Button(this); b.setText(text); b.setAllCaps(false); b.setTextColor(blue);
+    private Button button(String value, Runnable action) {
+        Button b = new Button(this); b.setText(value); b.setAllCaps(false); b.setTextColor(blue);
         b.setOnClickListener(v -> action.run()); return b;
+    }
+    private Button primary(String value,Runnable action) {
+        Button b=button(value,action); b.setTextColor(Color.rgb(32,50,39));
+        b.setBackground(round(blue,dip(14)));b.setMinHeight(dip(52));
+        return b;
+    }
+    private android.graphics.drawable.GradientDrawable round(int color,int radius){
+        android.graphics.drawable.GradientDrawable d=new android.graphics.drawable.GradientDrawable();
+        d.setColor(color);d.setCornerRadius(radius);return d;
     }
     private EditText field(String hint, int type) {
         EditText e = new EditText(this); e.setSingleLine(true); e.setHint(hint); e.setInputType(type);
         return e;
     }
     private void card(LinearLayout content) {
-        content.setPadding(dip(15),dip(12),dip(15),dip(12));
-        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setColor(Color.WHITE); bg.setCornerRadius(dip(16));
-        content.setBackground(bg); content.setElevation(dip(2));
+        content.setPadding(dip(16),dip(14),dip(16),dip(14));
+        content.setBackground(round(panel,dip(18)));
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1,-2);
-        p.setMargins(0,dip(11),0,dip(2)); page.addView(content,p);
+        p.setMargins(0,dip(10),0,0); page.addView(content,p);
+    }
+    private void sectionTitle(String name){
+        TextView t=label(name,13,muted,true);
+        t.setLetterSpacing(.09f);t.setPadding(0,dip(21),0,dip(1));page.addView(t);
     }
     private void show() {
         ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true); scroll.setBackgroundColor(Color.rgb(244,247,250));
-        page = column(); page.setPadding(dip(18),dip(18),dip(18),dip(35));
+        scroll.setFillViewport(true); scroll.setBackgroundColor(background);
+        page = column(); page.setPadding(dip(18),dip(12),dip(18),dip(34));
         scroll.addView(page); setContentView(scroll);
         if(carId == -1) showCars(); else showCar();
     }
+    private static class Item {
+        long id,interval,last,when;String name;
+        Item(long id,String name,long interval,long last,long when){
+            this.id=id;this.name=name;this.interval=interval;this.last=last;this.when=when;
+        }
+    }
+    private class ResourceGauge extends View {
+        final int percent;
+        final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
+        ResourceGauge(int percent){super(MainActivity.this);this.percent=percent;}
+        @Override protected void onDraw(Canvas canvas){
+            super.onDraw(canvas);
+            float cx=getWidth()/2f,cy=getHeight()/2f;
+            float radius=Math.min(getWidth(),getHeight())*.40f;
+            paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(dip(12));
+            paint.setStrokeCap(Paint.Cap.ROUND);paint.setColor(Color.rgb(52,72,66));
+            RectF arc=new RectF(cx-radius,cy-radius,cx+radius,cy+radius);
+            canvas.drawArc(arc,-90,360,false,paint);
+            paint.setColor(percent==0?warning:blue);
+            canvas.drawArc(arc,-90,360*percent/100f,false,paint);
+            paint.setStyle(Paint.Style.FILL);paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTypeface(Typeface.create(Typeface.DEFAULT,Typeface.BOLD));
+            paint.setTextSize(dip(30));
+            canvas.drawText(percent+"%",cx,cy+dip(4),paint);
+            paint.setColor(muted);paint.setTypeface(Typeface.DEFAULT);
+            paint.setTextSize(dip(11));canvas.drawText("РЕСУРС",cx,cy+dip(23),paint);
+        }
+    }
     private void showCars() {
-        heading("Мой гараж", "Обслуживание и расход топлива");
-        page.addView(button("＋ Добавить автомобиль",this::addCar));
-        page.addView(button("Сохранить резервную копию",this::exportBackup));
-        page.addView(button("Восстановить из копии",this::importBackup));
+        heading("Мой гараж","Выбери автомобиль");
         try(Cursor c=data().rawQuery("SELECT _id,name,odo FROM cars ORDER BY _id",null)) {
-            if(c.getCount()==0) page.addView(label("Добавь машину и её текущий пробег, чтобы начать.",16,muted,false));
-            while(c.moveToNext()) {
-                long id=c.getLong(0); LinearLayout box=column();
+            if(c.getCount()==0) page.addView(label("Добавь автомобиль и его текущий пробег.",16,muted,false));
+            while(c.moveToNext()){
+                long id=c.getLong(0);LinearLayout box=column();
                 box.addView(label(c.getString(1),20,ink,true));
-                box.addView(label("Пробег: "+c.getLong(2)+" км",15,muted,false));
-                box.addView(button("Открыть →",()->{carId=id;show();})); card(box);
+                box.addView(label("Пробег · "+c.getLong(2)+" км",14,muted,false));
+                box.setOnClickListener(v->{carId=id;show();});card(box);
             }
         }
+        page.addView(primary("＋ Добавить автомобиль",this::addCar));
+        sectionTitle("ДАННЫЕ");
+        page.addView(button("Сохранить резервную копию",this::exportBackup));
+        page.addView(button("Восстановить из копии",this::importBackup));
     }
     private void addCar() {
         LinearLayout form=column(); form.setPadding(dip(15),0,dip(15),0);
@@ -129,22 +177,120 @@ public class MainActivity extends Activity {
         }));dialog.show();
     }
     private void showCar() {
+        String carName;long mileage;
         try(Cursor c=data().rawQuery("SELECT name,odo FROM cars WHERE _id=?",args(carId))) {
             if(!c.moveToFirst()){carId=-1;show();return;}
-            heading(c.getString(0),"Текущий пробег: "+c.getLong(1)+" км");
+            carName=c.getString(0);mileage=c.getLong(1);
         }
-        page.addView(button("← Все машины",()->{carId=-1;show();}));
-        page.addView(button("＋ Заправка",this::addFill));
-        page.addView(button("＋ Расходник",this::addItem));
-        page.addView(button("Исправить пробег",this::editOdo));
-        page.addView(label("Расходники",19,ink,true));
+        TextView eyebrow=label("МОЙ ГАРАЖ",12,muted,true);
+        eyebrow.setLetterSpacing(.14f);page.addView(eyebrow);
+        LinearLayout header=new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title=label(carName,24,ink,true);
+        header.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+        Button switcher=button("АВТО ⌄",this::showCarsList);
+        switcher.setTextSize(12);
+        switcher.setBackground(round(Color.rgb(39,55,53),dip(12)));
+        header.addView(switcher);
+        page.addView(header);
+        LinearLayout odometer=new LinearLayout(this);
+        odometer.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout odometerLeft=column();
+        odometerLeft.addView(label("ПРОБЕГ",11,muted,true));
+        odometerLeft.addView(label(String.format(Locale.getDefault(),"%,d км",mileage),29,ink,true));
+        odometer.addView(odometerLeft,new LinearLayout.LayoutParams(0,-2,1));
+        odometer.addView(button("Изменить ↗",this::editOdo));
+        odometer.setBackground(round(Color.rgb(33,51,47),dip(18)));
+        odometer.setPadding(dip(16),dip(12),dip(9),dip(12));
+        LinearLayout.LayoutParams op=new LinearLayout.LayoutParams(-1,-2);
+        op.setMargins(0,dip(17),0,dip(7));page.addView(odometer,op);
+
+        ArrayList<Item> items=new ArrayList<>();
         try(Cursor c=data().rawQuery("SELECT _id,name,interval_km,last_km,last_date FROM items WHERE car=? ORDER BY name",args(carId))) {
-            if(c.getCount()==0)page.addView(label("Добавь масло, фильтры и другие расходники.",15,muted,false));
-            while(c.moveToNext()) addItemCard(c.getLong(0),c.getString(1),c.getLong(2),c.getLong(3),c.getLong(4));
+            while(c.moveToNext())items.add(new Item(c.getLong(0),c.getString(1),c.getLong(2),c.getLong(3),c.getLong(4)));
         }
-        page.addView(label("Топливо",19,ink,true));
+        Item featured=null;
+        for(Item item:items){
+            String n=item.name.toLowerCase(Locale.ROOT);
+            if(n.contains("масло двиг")||n.contains("engine oil")||n.contains("olej silnik")){featured=item;break;}
+        }
+        if(featured==null&&!items.isEmpty())featured=items.get(0);
+        if(featured!=null)showGaugeCard(featured,mileage);
+        else{
+            LinearLayout box=column();box.addView(label("Добавь первый расходник",17,ink,true));
+            box.addView(label("Тогда здесь появится ресурс до следующей замены.",13,muted,false));
+            box.addView(button("＋ Добавить расходник",this::addItem));card(box);
+        }
+        boolean hasAlerts=false;
+        for(Item item:items){
+            if(item==featured)continue;
+            if(mileage-item.last>=item.interval){
+                if(!hasAlerts){sectionTitle("ТРЕБУЕТ ВНИМАНИЯ");hasAlerts=true;}
+                addItemCard(item.id,item.name,item.interval,item.last,item.when);
+            }
+        }
+        boolean hasMore=false;
+        for(Item item:items){
+            if(item==featured||mileage-item.last>=item.interval)continue;
+            if(!hasMore){sectionTitle("ОСТАЛЬНЫЕ РАСХОДНИКИ");hasMore=true;}
+            addItemCard(item.id,item.name,item.interval,item.last,item.when);
+        }
+        sectionTitle("ТОПЛИВО");
         addFuelSummary();
+        page.addView(primary("＋ Добавить запись",this::addRecord));
         page.addView(button("История заправок",this::fuelHistory));
+        page.addView(button("Резервная копия и автомобили",()->{carId=-1;show();}));
+    }
+    private void showCarsList(){
+        ArrayList<Long> ids=new ArrayList<>();ArrayList<String> names=new ArrayList<>();
+        try(Cursor c=data().rawQuery("SELECT _id,name FROM cars ORDER BY _id",null)){
+            while(c.moveToNext()){ids.add(c.getLong(0));names.add(c.getString(1));}
+        }
+        names.add("＋ Добавить автомобиль");
+        new AlertDialog.Builder(this).setTitle("Автомобиль")
+            .setItems(names.toArray(new String[0]),(d,which)->{
+                if(which==ids.size())addCar();else{carId=ids.get(which);show();}
+            }).show();
+    }
+    private void addRecord(){
+        new AlertDialog.Builder(this).setTitle("Добавить запись")
+            .setItems(new String[]{"Заправка","Отметить замену","Новый расходник"},(d,which)->{
+                if(which==0)addFill();
+                if(which==1){
+                    ArrayList<Item> items=new ArrayList<>();
+                    try(Cursor c=data().rawQuery("SELECT _id,name,interval_km,last_km,last_date FROM items WHERE car=? ORDER BY name",args(carId))){
+                        while(c.moveToNext())items.add(new Item(c.getLong(0),c.getString(1),c.getLong(2),c.getLong(3),c.getLong(4)));
+                    }
+                    if(items.isEmpty()){addItem();return;}
+                    String[] options=new String[items.size()];
+                    for(int i=0;i<items.size();i++)options[i]=items.get(i).name;
+                    new AlertDialog.Builder(this).setTitle("Что заменил?")
+                        .setItems(options,(x,index)->replaceItem(items.get(index).id,items.get(index).name,false)).show();
+                }
+                if(which==2)addItem();
+            }).show();
+    }
+    private void showGaugeCard(Item item,long mileage){
+        long used=Math.max(0,mileage-item.last);
+        long left=Math.max(0,item.interval-used);
+        int percent=(int)Math.max(0,Math.min(100,Math.round(left*100.0/item.interval)));
+        LinearLayout box=new LinearLayout(this);
+        box.setGravity(Gravity.CENTER_VERTICAL);
+        box.setBackground(round(panel,dip(20)));
+        box.setPadding(dip(9),dip(13),dip(15),dip(13));
+        ResourceGauge gauge=new ResourceGauge(percent);
+        box.addView(gauge,new LinearLayout.LayoutParams(dip(132),dip(132)));
+        LinearLayout detail=column();
+        detail.addView(label("СЛЕДУЮЩАЯ ЗАМЕНА",11,muted,true));
+        TextView name=label(item.name,18,ink,true);
+        name.setPadding(0,dip(7),0,dip(6));detail.addView(name);
+        String status=used>item.interval?"Просрочено на "+(used-item.interval)+" км":
+            used==item.interval?"Пора менять":"Осталось "+left+" км";
+        detail.addView(label(status,14,percent==0?warning:blue,true));
+        detail.addView(button("История и замена ›",()->itemOptions(item.id,item.name)));
+        box.addView(detail,new LinearLayout.LayoutParams(0,-2,1));
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
+        p.setMargins(0,dip(10),0,0);page.addView(box,p);
     }
     private long odo() {
         try(Cursor c=data().rawQuery("SELECT odo FROM cars WHERE _id=?",args(carId))) {
@@ -153,19 +299,15 @@ public class MainActivity extends Activity {
     }
     private void addItemCard(long id,String name,long interval,long last,long when) {
         long used=Math.max(0,odo()-last);
-        long remain=Math.max(0,interval-used);
-        int percent=(int)Math.max(0,Math.min(100,Math.round(remain*100.0/interval)));
+        long left=Math.max(0,interval-used);
+        int percent=(int)Math.max(0,Math.min(100,Math.round(left*100.0/interval)));
         LinearLayout box=column();
-        box.addView(label(name,18,ink,true));
-        String status=used>interval?"Просрочено на "+(used-interval)+" км":used==interval?"Пора менять · интервал достигнут":percent+"% осталось · "+remain+" км до замены";
-        box.addView(label(status,15,percent<=15?Color.rgb(185,65,32):blue,true));
-        ProgressBar bar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
-        bar.setMax(100);bar.setProgress(percent);
-        bar.setProgressTintList(android.content.res.ColorStateList.valueOf(percent<=15?Color.rgb(218,88,47):blue));
-        LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-1,dip(9));bp.setMargins(0,dip(9),0,dip(8));box.addView(bar,bp);
-        box.addView(label("Замена: "+last+" км · "+date(when)+" · интервал: "+interval+" км",13,muted,false));
-        box.addView(button("Отметить замену",()->replaceItem(id,name,false)));
-        box.addView(button("Изменить / история",()->itemOptions(id,name)));
+        String status=used>interval?"Просрочено на "+(used-interval)+" км":
+            used==interval?"Пора менять":percent+"% осталось · "+left+" км";
+        box.addView(label(name,16,ink,true));
+        box.addView(label(status,13,percent==0?warning:blue,true));
+        box.addView(label("Последняя замена: "+last+" км · "+date(when),12,muted,false));
+        box.setOnClickListener(v->itemOptions(id,name));
         card(box);
     }
     private void addItem() { itemForm(-1); }
@@ -415,12 +557,15 @@ public class MainActivity extends Activity {
                 }
             }
         }
-        LinearLayout box=column();
-        if(latestDistance>0){
-            box.addView(label(String.format(Locale.getDefault(),"%.1f л/100 км",latest),23,blue,true));
-            box.addView(label("Последний отрезок: "+latestDistance+" км",14,muted,false));
-            box.addView(label(String.format(Locale.getDefault(),"Средний по полным бакам: %.1f л/100 км",totalLiters*100/totalKm),14,ink,false));
-        }else box.addView(label("Для расчёта расхода нужны две заправки до полного бака.",14,muted,false));
+        LinearLayout box=new LinearLayout(this);box.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout text=column();
+        text.addView(label("Средний расход топлива",14,muted,false));
+        if(latestDistance>0)text.addView(label(String.format(Locale.getDefault(),
+            "Последний отрезок: %.1f л/100 км",latest),12,muted,false));
+        box.addView(text,new LinearLayout.LayoutParams(0,-2,1));
+        if(latestDistance>0)
+            box.addView(label(String.format(Locale.getDefault(),"%.1f л/100",totalLiters*100/totalKm),18,ink,true));
+        else box.addView(label("Пока нет данных",14,muted,false));
         card(box);
     }
     private void fuelHistory() {
